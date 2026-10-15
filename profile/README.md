@@ -4,7 +4,9 @@
 
 <h1 align="center">Sintética</h1>
 
-<p align="center"><b>Crie seu influencer de IA no ChatGPT.</b></p>
+<h3 align="center">Sua marca precisa de uma cara.<br>Ela não precisa mais ser a sua.</h3>
+
+<p align="center"><i>Life is just a prompt.</i></p>
 
 <p align="center">
   <a href="https://sintetica.app">sintetica.app</a> ·
