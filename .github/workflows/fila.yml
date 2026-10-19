@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Baixar regras e script da fila (este repo, mesmo SHA)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: sintetic4/.github
           ref: ${{ github.job_workflow_sha }}
@@ -32,7 +32,7 @@ jobs:
 
       - name: fila.json como artefato (cron e manual)
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: fila-json
           path: fila.json
