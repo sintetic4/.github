@@ -68,7 +68,10 @@ async function checksDoCommit(sha) {
 async function garantirRotulos() {
   if (rotulosCriados) return;
   for (const l of ROTULOS) {
-    try { await gh('POST', `/repos/${REPO}/labels`, l); } catch (e) { if (e.status !== 422) throw e; }
+    try { await gh('POST', `/repos/${REPO}/labels`, l); } catch (e) {
+      // 422 = já existe. Outro erro (ex.: token sem permissão de issues) não derruba o robô: rótulo tem que existir.
+      if (e.status !== 422) console.warn(`aviso: não criei rótulo ${l.name}: ${e.message}`);
+    }
   }
   rotulosCriados = true;
 }
