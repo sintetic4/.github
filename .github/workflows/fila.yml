@@ -1,0 +1,40 @@
+# Fila automática de PRs (spec: 90_sessions/artifacts/SES-261019-rzs/spec-fila-automatica.md).
+# Chamado por um workflow curto em cada repo. Script e regras vêm deste repo, no mesmo SHA do workflow.
+name: fila
+on:
+  workflow_call:
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  fila:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Baixar regras e script da fila (este repo, mesmo SHA)
+        uses: actions/checkout@v4
+        with:
+          repository: sintetic4/.github
+          ref: ${{ github.job_workflow_sha }}
+          path: fila-tool
+          persist-credentials: false
+
+      - name: Avaliar PRs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: node fila-tool/.github/fila/run.mjs
+
+      - name: fila.json como artefato (cron e manual)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fila-json
+          path: fila.json
+          retention-days: 30
+          if-no-files-found: error
