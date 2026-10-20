@@ -108,17 +108,21 @@ export function instanteDoEvento({ pushIso, updatedIso, createdIso }) {
   return t.length ? Math.max(...t) : null;
 }
 
-// Nome exato do check do próprio robô (job "fila" do caller chamando job "fila" do reusable). Só este é ignorado.
+// Reserva por nome exato (formato "<job do caller> / <job do reusable>", NÃO confirmado até o 1º run). O mecanismo principal
+// é o check_suite da run atual (ver driver.mjs). Configurável por FILA_CHECKS_PROPRIOS (lista separada por vírgula).
 export const NOMES_PROPRIOS = ['fila / fila'];
+export const nomesProprios = (env) => (env && env.trim() ? env.split(',').map((x) => x.trim()).filter(Boolean) : NOMES_PROPRIOS);
 
-const ehProprio = (r, proprios, runId) => proprios.includes(r.name)
+const ehProprio = (r, proprios, runId, checkSuiteId) => proprios.includes(r.name)
+  || Boolean(checkSuiteId && r.check_suite && r.check_suite.id === checkSuiteId)
   || Boolean(runId && typeof r.details_url === 'string' && r.details_url.includes(`/actions/runs/${runId}/`));
 
 // Checks do commit, sem os do próprio robô (nome exato ou run atual).
 // Estado: 'falha' | 'pendente' | 'sem_obrigatorios' (config sem checks_obrigatorios) | 'nenhum' (nada registrado) | 'ok'.
 // Ausência de checks NUNCA é verde: 'nenhum' e 'sem_obrigatorios' não mergeiam sozinhos.
-export function estadoChecks(runs, obrigatorios = [], { proprios = NOMES_PROPRIOS, runId = null } = {}) {
-  const outros = runs.filter((r) => !ehProprio(r, proprios, runId));
+export function estadoChecks(runs, obrigatorios = [], { proprios = NOMES_PROPRIOS, runId = null, checkSuiteId = null } = {}) {
+  const outros = runs.filter((r) => !ehProprio(r, proprios, runId, checkSuiteId));
+  const ignorados = runs.filter((r) => !outros.includes(r)).map((r) => r.name);
   const falhas = [];
   const pendentes = [];
   for (const r of outros) {
@@ -132,11 +136,11 @@ export function estadoChecks(runs, obrigatorios = [], { proprios = NOMES_PROPRIO
     else if (achados[0].status !== 'completed') pendentes.push(nome);
     else if (achados[0].conclusion !== 'success') falhas.push(nome);
   }
-  if (falhas.length) return { estado: 'falha', nomes: falhas };
-  if (pendentes.length) return { estado: 'pendente', nomes: pendentes };
-  if (obrigatorios.length === 0) return { estado: 'sem_obrigatorios', nomes: [] };
-  if (outros.length === 0) return { estado: 'nenhum', nomes: [] };
-  return { estado: 'ok', nomes: [] };
+  if (falhas.length) return { estado: 'falha', nomes: falhas, ignorados };
+  if (pendentes.length) return { estado: 'pendente', nomes: pendentes, ignorados };
+  if (obrigatorios.length === 0) return { estado: 'sem_obrigatorios', nomes: [], ignorados };
+  if (outros.length === 0) return { estado: 'nenhum', nomes: [], ignorados };
+  return { estado: 'ok', nomes: [], ignorados };
 }
 
 // Revisão efetiva: a última decisiva (APPROVED / CHANGES_REQUESTED / DISMISSED) por pessoa; DISMISSED sai.

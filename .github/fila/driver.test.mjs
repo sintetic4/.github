@@ -32,6 +32,7 @@ function mundo(over = {}) {
   w.gh = async (method, path, body, opts = {}) => {
     w.calls.push({ method, path, body });
     const m = (re) => path.match(re);
+    if (method === 'GET' && m(/\/actions\/runs\/\d+$/)) { if (w.suiteErro) throw new Error('404'); return { check_suite_id: w.suiteId || null }; }
     if (method === 'GET' && m(/^\/repos\/o\/r$/)) return { default_branch: 'main' };
     if (method === 'GET' && m(/^\/repos\/o\/r\/pulls\?state=open/)) return w.abertos || [w.pr];
     if (method === 'GET' && m(/^\/repos\/o\/r\/pulls\/\d+$/)) {
@@ -67,10 +68,12 @@ test('verde com check ok mergeia com squash e o sha avaliado; apaga a branch', a
   assert.ok(w.calls.some((c) => c.method === 'DELETE' && c.path.endsWith('/git/refs/heads/feat/x')));
 });
 
-test('config vem da BASE (sha da base), nao do head', async () => {
+test('config vem da branch padrao ATUAL (nome da branch), nao do head nem do base.sha defasado', async () => {
   const w = mundo();
   await drv(w).avaliar(7);
-  assert.equal(w.refConfig, BASE_SHA);
+  assert.equal(w.refConfig, 'main');
+  assert.notEqual(w.refConfig, BASE_SHA);
+  assert.notEqual(w.refConfig, SHA);
 });
 
 test('sem fila.yml na base: erro do robo, nao mergeia, comenta', async () => {
@@ -233,4 +236,28 @@ test('fila cheia: avisa uma vez no PR recem-aberto, sem bloquear', async () => {
   w.checks = [];
   await drv(w).rodar('pull_request_target', { action: 'opened', pull_request: { number: 7 } });
   assert.ok(w.comments.some((c) => c.body.includes('fila cheia')));
+});
+
+test('check da PROPRIA run e ignorado pelo check_suite, qualquer que seja o nome', async () => {
+  const w = mundo({ suiteId: 555 });
+  w.checks.push({ id: 9, name: 'nome-que-ninguem-previu', status: 'in_progress', check_suite: { id: 555 } });
+  const r = await drv(w).avaliar(7);
+  assert.equal(r.acao, 'mesclado');
+  // outra suite (outra run, nome estranho) em andamento bloqueia
+  const o = mundo({ suiteId: 555 });
+  o.checks.push({ id: 9, name: 'nome-que-ninguem-previu', status: 'in_progress', check_suite: { id: 556 } });
+  assert.equal((await drv(o).avaliar(7)).acao, 'espera');
+});
+
+test('API da run indisponivel: cai no nome configurado; nome configuravel; ignorados aparecem no log', async () => {
+  const logs = [];
+  const log = { log: (m) => logs.push(m), warn() {}, error() {} };
+  const mk = (w, proprios) => criarDriver({ gh: w.gh, repo: REPO, runId: '99', proprios, agora: () => AGORA, sleep: async () => {}, log });
+  const a = mundo({ suiteErro: true });
+  a.checks.push({ id: 9, name: 'meu job / fila', status: 'in_progress' });
+  assert.equal((await mk(a, ['fila / fila']).avaliar(7)).acao, 'espera'); // nome errado: nao ignora
+  const b = mundo({ suiteErro: true });
+  b.checks.push({ id: 9, name: 'meu job / fila', status: 'in_progress' });
+  assert.equal((await mk(b, ['meu job / fila']).avaliar(7)).acao, 'mesclado');
+  assert.ok(logs.some((l) => l.includes('ignorados=[meu job / fila]')));
 });

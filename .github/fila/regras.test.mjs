@@ -106,3 +106,18 @@ test('idade do amarelo: push do commit atual, nao committer.date; sem push usa u
   assert.equal(instanteDoEvento({ pushIso: '2026-10-01T00:00:00Z', updatedIso: null, createdIso: '2026-10-19T00:00:00Z' }), t('2026-10-19T00:00:00Z'));
   assert.equal(instanteDoEvento({}), null);
 });
+
+test('nomesProprios: env configura; vazio usa o padrao', async () => {
+  const { nomesProprios, NOMES_PROPRIOS } = await import('./lib.mjs');
+  assert.deepEqual(nomesProprios('a / b, c'), ['a / b', 'c']);
+  assert.deepEqual(nomesProprios(''), NOMES_PROPRIOS);
+  assert.deepEqual(nomesProprios(undefined), NOMES_PROPRIOS);
+});
+
+test('check_suite da run atual e ignorado e listado em ignorados', () => {
+  const runs = [run('qualquer', { check_suite: { id: 5 }, status: 'in_progress', conclusion: null }), run('validate')];
+  const e = estadoChecks(runs, ['validate'], { checkSuiteId: 5 });
+  assert.equal(e.estado, 'ok');
+  assert.deepEqual(e.ignorados, ['qualquer']);
+  assert.equal(estadoChecks(runs, ['validate'], { checkSuiteId: 6 }).estado, 'pendente');
+});

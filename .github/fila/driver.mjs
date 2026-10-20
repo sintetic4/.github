@@ -3,7 +3,7 @@
 // Contrato de segurança: só LÊ metadados do PR pela API. Nunca faz checkout nem executa código do head.
 // Título/branch/corpo do PR nunca vão para shell; só para comentário/relatório como texto.
 import {
-  parseFilaYaml, corDosArquivos, estadoChecks, aprovacaoEMudancas, decidir, tocaGithub, instanteDoEvento, LIMITE_FILA,
+  parseFilaYaml, corDosArquivos, estadoChecks, nomesProprios, aprovacaoEMudancas, decidir, tocaGithub, instanteDoEvento, LIMITE_FILA,
 } from './lib.mjs';
 
 export const COR_LABEL = { verde: 'fila:verde', amarelo: 'fila:amarelo', vermelho: 'fila:vermelho' };
@@ -16,10 +16,11 @@ export const ROTULOS = [
 const TRUNCADO = 3000; // limite da API de arquivos do PR
 const titulo12 = (t) => String(t || '').split(/\s+/).slice(0, 12).join(' ');
 
-export function criarDriver({ gh, repo, runId = null, agora = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console }) {
+export function criarDriver({ gh, repo, runId = null, proprios = nomesProprios(''), agora = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console }) {
   let rotulosCriados = false;
   let padrao = null;
   let houveErro = false;
+  let suite;
 
   async function paginar(path, max = 30) {
     const out = [];
@@ -40,6 +41,16 @@ export function criarDriver({ gh, repo, runId = null, agora = Date.now, sleep = 
       if (runs.length >= r.total_count || r.check_runs.length === 0) break;
     }
     return runs;
+  }
+
+  // check_suite da run atual: todos os jobs desta run (inclusive "fila / fila") ficam nela. Ignorar por id não depende de nome.
+  async function suiteDaRun() {
+    if (suite !== undefined) return suite;
+    suite = null;
+    if (runId) {
+      try { suite = (await gh('GET', `/repos/${repo}/actions/runs/${runId}`)).check_suite_id || null; } catch { suite = null; }
+    }
+    return suite;
   }
 
   async function branchPadrao() {
@@ -105,15 +116,16 @@ export function criarDriver({ gh, repo, runId = null, agora = Date.now, sleep = 
         return null;
       }
       const arquivos = await paginar(`/repos/${repo}/pulls/${numero}/files`, 30);
-      // Config da BASE (pr.base.sha), nunca do head: o PR não escolhe as próprias regras.
-      const cfgResp = await gh('GET', `/repos/${repo}/contents/.github/fila.yml?ref=${pr.base.sha}`, null, { ok404: true });
-      if (!cfgResp) throw new Error('.github/fila.yml ausente na base do PR (sem config, não classifica)');
+      // Regras da branch padrão ATUAL (não do head, não do pr.base.sha que pode estar defasado): o PR não escolhe as regras
+      // e uma regra nova vale para PRs já abertos.
+      const cfgResp = await gh('GET', `/repos/${repo}/contents/.github/fila.yml?ref=${encodeURIComponent(await branchPadrao())}`, null, { ok404: true });
+      if (!cfgResp) throw new Error('.github/fila.yml ausente na branch padrão (sem config, não classifica)');
       const cfg = parseFilaYaml(Buffer.from(cfgResp.content, 'base64').toString('utf8'));
       const pushIso = await pushDoCommit(pr, sha);
       const t0 = instanteDoEvento({ pushIso, updatedIso: pr.updated_at, createdIso: pr.created_at });
       const idadeMs = t0 === null ? 0 : Math.max(0, agora() - t0);
       const revisoes = await paginar(`/repos/${repo}/pulls/${numero}/reviews`);
-      const checks = estadoChecks(await checksDoCommit(sha), cfg.checks_obrigatorios, { runId });
+      const checks = estadoChecks(await checksDoCommit(sha), cfg.checks_obrigatorios, { runId, proprios, checkSuiteId: await suiteDaRun() });
       const { aprovado, mudancasPedidas } = aprovacaoEMudancas(revisoes, sha);
       const labels = pr.labels.map((l) => l.name);
 
@@ -146,7 +158,7 @@ export function criarDriver({ gh, repo, runId = null, agora = Date.now, sleep = 
           acao = 'erro';
         }
       }
-      log.log(`PR #${numero} cor=${cls.cor} acao=${acao} motivo="${dec.motivo}" (${cls.motivo}) checks=${checks.estado}`);
+      log.log(`PR #${numero} cor=${cls.cor} acao=${acao} motivo="${dec.motivo}" (${cls.motivo}) checks=${checks.estado} ignorados=[${checks.ignorados.join(' | ')}]`);
       return {
         repo, pr: numero, titulo: titulo12(pr.title), cor: cls.cor, acao,
         idade_h: Math.floor(idadeMs / 3600000), esperando: dec.esperando, motivo: dec.motivo,

@@ -6,13 +6,18 @@
 #  2. O caller referencia este workflow por SHA de 40 hex (lint no CI do repo). O PR não muda a versão do robô.
 #  3. Este job NUNCA faz checkout do repo do PR nem executa código do head. O único checkout é o do repo
 #     sintetic4/.github no SHA do próprio workflow (ferramenta). O PR é lido só pela API (lista de arquivos, reviews, checks).
-#  4. As regras (.github/fila.yml) são lidas da BASE do PR (sha da base), não do head.
+#  4. As regras (.github/fila.yml) são lidas da branch padrão ATUAL do repo, não do head nem do sha da base do PR.
 #  5. Título, branch e corpo do PR nunca são interpolados em shell: os `run:` usam só env fixo (event_path, run_id,
 #     repository). Os dados do PR entram em comentários/relatório como texto, via API.
 #  6. Qualquer PR que toque .github/** (inclusive rename/deleção) é vermelho e o robô recusa mergear, mesmo aprovado.
 name: fila
 on:
   workflow_call:
+    inputs:
+      checks_proprios:
+        description: "Nomes exatos (separados por vírgula) dos checks do próprio robô, reserva caso a API da run falhe. Padrão: fila / fila"
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -28,12 +33,20 @@ jobs:
       checks: read
     steps:
       - name: Baixar regras e script da fila (este repo, mesmo SHA)
+        id: ferramenta
+        continue-on-error: true
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: sintetic4/.github
           ref: ${{ github.job_workflow_sha }}
           path: fila-tool
           persist-credentials: false
+
+      - name: Erro claro se não deu para baixar a ferramenta
+        if: steps.ferramenta.outcome == 'failure'
+        run: |
+          echo "::error title=fila: sem acesso a sintetic4/.github::O checkout da ferramenta falhou. Causa provável: sintetic4/.github é PRIVADO e o github.token do repo chamador não lê outro repo privado. Decisão pendente do João entre 3 opções (passo a passo em .github/fila/README.md): (A) tornar .github público, (B) GitHub App com token de instalação, (C) vendorizar a ferramenta em cada repo."
+          exit 1
 
       - name: Avaliar PRs
         env:
@@ -42,6 +55,7 @@ jobs:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_EVENT_PATH: ${{ github.event_path }}
           GITHUB_RUN_ID: ${{ github.run_id }}
+          FILA_CHECKS_PROPRIOS: ${{ inputs.checks_proprios }}
         run: node fila-tool/.github/fila/run.mjs
 
       - name: fila.json como artefato (cron e manual)
