@@ -10,32 +10,16 @@ Modelo do caller: `caller.exemplo.yml`. Testes: `node --test .github/fila/*.test
 3. Se `ignorados=[]` e o PR ficou "checks em andamento: <nome da fila>": a API da run falhou. Copie o nome exato e
    passe no caller: `with: { checks_proprios: "<nome exato>" }` (ou env `FILA_CHECKS_PROPRIOS`).
 
-## Problema aberto: `.github` privado (decisão do João)
-O passo de checkout de `sintetic4/.github` usa o `github.token` do repo CHAMADOR, que não lê outro repo privado. O workflow
-falha com uma mensagem clara (`fila: sem acesso a sintetic4/.github`). Três saídas; escolher UMA.
+## `.github` público (opção A em vigor, decidida pelo João)
+`sintetic4/.github` é PÚBLICO, então o checkout da ferramenta funciona com o `github.token` de qualquer repo chamador, sem App nem token extra.
+O código e as regras genéricas da fila ficam públicos; o `fila.yml` de cada repo continua privado no repo dele. Nunca pôr segredo neste repo.
+Se o checkout falhar mesmo assim: conferir visibilidade e o SHA do `uses:` no caller (o erro do passo "Erro claro..." aponta para aqui).
+Alternativas descartadas (só se voltar a privado): GitHub App com `actions/create-github-app-token` (Contents: read só em `.github`, chave em segredo) ou
+vendorizar `lib/driver/run.mjs` e o workflow em cada repo (sem checkout do head; deriva entre repos).
 
-Pré-requisito comum de qualquer uma que mantenha o reusable workflow em `.github` privado: em `sintetic4/.github`,
-Settings > Actions > General > Access > "Accessible from repositories in the 'sintetic4' organization" (sem isso nem o
-`uses:` do caller resolve).
-
-### A. Tornar `sintetic4/.github` público (mais simples)
-1. Conferir que o repo não tem segredo/histórico sensível: `git log -p | grep -iE "ghp_|github_pat_|sk-|BEGIN .* PRIVATE"` e revisar `profile/` e `SECURITY.md`.
-2. `sintetic4/.github` > Settings > General > Danger Zone > Change repository visibility > Make public.
-3. Nada muda nos workflows: o checkout passa a funcionar sem token. Custo zero. Contra: o código e as regras da fila ficam públicos
-   (os `fila.yml` de cada repo continuam privados, em cada repo).
-
-### B. GitHub App com token de instalação (mantém privado)
-1. Org sintetic4 > Settings > Developer settings > GitHub Apps > New: permissão de repositório `Contents: Read-only`, sem webhook.
-2. Instalar o App só no repo `sintetic4/.github`. Gerar uma private key (.pem).
-3. Em cada repo chamador (ou como segredos da org): `FILA_APP_ID` (variável) e `FILA_APP_KEY` (segredo = conteúdo do .pem).
-4. No `fila.yml` antes do checkout, adicionar `actions/create-github-app-token` (pinar por SHA) com
-   `app-id: ${{ vars.FILA_APP_ID }}`, `private-key: ${{ secrets.FILA_APP_KEY }}`, `owner: sintetic4`, `repositories: .github`,
-   e passar `token: ${{ steps.app.outputs.token }}` ao checkout. No caller: `secrets: inherit` (ou mapear os dois nomes).
-5. Contra: um segredo (a chave) por repo/org para rotacionar. Custo zero no plano Free.
-
-### C. Vendorizar a ferramenta em cada repo (sem reusable workflow)
-1. Copiar `.github/fila/{lib,driver,run}.mjs` e o conteúdo de `.github/workflows/fila.yml` para o repo chamador
-   (`.github/fila/` e `.github/workflows/fila.yml`, já com os gatilhos do `caller.exemplo.yml`).
-2. O workflow NÃO pode fazer checkout do PR: se precisar do código, `actions/checkout` com
-   `ref: ${{ github.event.repository.default_branch }}` (branch padrão, nunca o head). `pull_request_target` já roda o arquivo da padrão.
-3. Mudanças na ferramenta passam a exigir PR em cada repo (todas tocam `.github/**`, vermelho, merge manual). Risco de deriva entre repos.
+## Limites conhecidos (documentados de propósito)
+- O CI do repo (`validate.yml`, gatilho `pull_request`) roda o arquivo de workflow do HEAD do PR. Um PR pode editar o próprio `validate.yml`.
+  Isso só é aceitável porque `.github/**` é sempre vermelho no robô (nunca mergeia sozinho, mesmo aprovado) e exige revisão humana.
+  O validador em si vem da base; o que o head controla é só o próprio arquivo de workflow.
+- Aprovação de review não dispara o robô: vale no próximo evento (push/label/CI/cron) ou em "Run workflow".
+- O formato do nome do check da fila (`fila / fila`) é só reserva; o mecanismo principal é o check_suite da run atual.

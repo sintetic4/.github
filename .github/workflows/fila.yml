@@ -45,7 +45,7 @@ jobs:
       - name: Erro claro se não deu para baixar a ferramenta
         if: steps.ferramenta.outcome == 'failure'
         run: |
-          echo "::error title=fila: sem acesso a sintetic4/.github::O checkout da ferramenta falhou. Causa provável: sintetic4/.github é PRIVADO e o github.token do repo chamador não lê outro repo privado. Decisão pendente do João entre 3 opções (passo a passo em .github/fila/README.md): (A) tornar .github público, (B) GitHub App com token de instalação, (C) vendorizar a ferramenta em cada repo."
+          echo "::error title=fila: sem acesso a sintetic4/.github::O checkout da ferramenta falhou. sintetic4/.github deve ser PUBLICO (opcao A, decidida): confira a visibilidade do repo e o SHA do uses: do caller. Detalhes em .github/fila/README.md."
           exit 1
 
       - name: Avaliar PRs
