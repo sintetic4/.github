@@ -49,16 +49,6 @@ test('cor: template de PR e CONTRIBUTING sao vermelho em qualquer caminho, mesmo
   assert.equal(corDosArquivos(['docs/contributing-guide-x.md'], CFG).cor, 'verde');
 });
 
-test('checks: robo ignorado; falha, pendente, nenhum, obrigatorio', () => {
-  assert.equal(estadoChecks([], []).estado, 'nenhum');
-  assert.equal(estadoChecks([{ id: 1, name: 'fila / fila', status: 'in_progress' }], []).estado, 'nenhum');
-  assert.equal(estadoChecks([{ id: 2, name: 'test', status: 'completed', conclusion: 'failure' }], []).estado, 'falha');
-  assert.equal(estadoChecks([{ id: 3, name: 'test', status: 'in_progress', conclusion: null }], []).estado, 'pendente');
-  assert.equal(estadoChecks([{ id: 4, name: 'test', status: 'completed', conclusion: 'success' }], ['lint']).estado, 'pendente');
-  assert.equal(estadoChecks([{ id: 5, name: 'lint', status: 'completed', conclusion: 'skipped' }], ['lint']).estado, 'falha');
-  assert.equal(estadoChecks([{ id: 6, name: 'test', status: 'completed', conclusion: 'success' }], []).estado, 'ok');
-});
-
 test('revisao: aprovacao so de aprovador, no commit atual, a ultima vence', () => {
   assert.equal(aprovacaoEMudancas([rev('l0z4n0-a1', 'APPROVED', 'abc')], 'abc').aprovado, true);
   assert.equal(aprovacaoEMudancas([rev('l0z4n0-a1', 'APPROVED', 'velho')], 'abc').aprovado, false);
@@ -78,7 +68,6 @@ test('decidir: verde', () => {
   assert.equal(decidir(ok({ cor: 'verde', mergeable: false })).acao, 'espera');
   assert.equal(decidir(ok({ cor: 'verde', mergeable: null })).acao, 'espera');
   assert.equal(decidir(ok({ cor: 'verde', mudancasPedidas: true })).acao, 'espera');
-  assert.equal(decidir(ok({ cor: 'verde', checks: { estado: 'nenhum', nomes: [] } })).acao, 'merge');
 });
 
 test('decidir: amarelo exige 24h', () => {

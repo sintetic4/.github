@@ -16,4 +16,4 @@ jobs:
         with:
           persist-credentials: false
       - name: node --test
-        run: node --test .github/fila/lib.test.mjs
+        run: node --test .github/fila/*.test.mjs

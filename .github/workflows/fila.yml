@@ -1,18 +1,31 @@
-# Fila automática de PRs (spec: 90_sessions/artifacts/SES-261019-rzs/spec-fila-automatica.md).
-# Chamado por um workflow curto em cada repo. Script e regras vêm deste repo, no mesmo SHA do workflow.
+# Fila automática de PRs. Chamado por um workflow curto em cada repo (modelo em .github/fila/caller.exemplo.yml).
+#
+# SEGURANÇA (por que um PR não consegue se autoaprovar ou injetar código):
+#  1. O caller roda em pull_request_target / workflow_run / schedule / workflow_dispatch. Todos executam o arquivo de
+#     workflow da BRANCH PADRÃO do repo, nunca o do PR. O PR não consegue editar o caller que o julga.
+#  2. O caller referencia este workflow por SHA de 40 hex (lint no CI do repo). O PR não muda a versão do robô.
+#  3. Este job NUNCA faz checkout do repo do PR nem executa código do head. O único checkout é o do repo
+#     sintetic4/.github no SHA do próprio workflow (ferramenta). O PR é lido só pela API (lista de arquivos, reviews, checks).
+#  4. As regras (.github/fila.yml) são lidas da BASE do PR (sha da base), não do head.
+#  5. Título, branch e corpo do PR nunca são interpolados em shell: os `run:` usam só env fixo (event_path, run_id,
+#     repository). Os dados do PR entram em comentários/relatório como texto, via API.
+#  6. Qualquer PR que toque .github/** (inclusive rename/deleção) é vermelho e o robô recusa mergear, mesmo aprovado.
 name: fila
 on:
   workflow_call:
 
-permissions:
-  contents: write
-  pull-requests: write
-  checks: read
+permissions: {}
 
 jobs:
   fila:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Mínimo para: ler PR/checks, rotular e comentar (issues + pull-requests), mergear e apagar branch (contents).
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      checks: read
     steps:
       - name: Baixar regras e script da fila (este repo, mesmo SHA)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -28,6 +41,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: node fila-tool/.github/fila/run.mjs
 
       - name: fila.json como artefato (cron e manual)

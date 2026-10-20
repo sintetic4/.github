@@ -8,13 +8,14 @@ export const LIMITE_FILA = 5;
 export const CHAVES_CONFIG = ['vermelho', 'verde', 'checks_obrigatorios'];
 
 // Sempre vermelho, em qualquer caminho e independente do fila.yml do repo (que é por repo e pode omitir):
+// .github/** (workflows, fila.yml, templates) é o próprio robô e o CI: nunca entra sozinho (ver tocaGithub).
 // template de PR e CONTRIBUTING mudam o processo de contribuição. GitHub aceita qualquer caixa e a pasta PULL_REQUEST_TEMPLATE/.
-export const SEMPRE_VERMELHO = [/(^|\/)pull_request_template(\.[^/]+)?$/i, /(^|\/)pull_request_template\//i, /(^|\/)contributing(\.[^/]+)?$/i];
+export const SEMPRE_VERMELHO = [/^\.github(\/|$)/i, /(^|\/)pull_request_template(\.[^/]+)?$/i, /(^|\/)pull_request_template\//i, /(^|\/)contributing(\.[^/]+)?$/i];
 
 const ORDEM = { verde: 0, amarelo: 1, vermelho: 2 };
 
 // Glob mínimo: ** (qualquer caminho; "**/" também casa zero pastas), * (sem barra), ? (um caractere sem barra).
-export function globToRegex(glob) {
+export function globToRegex(glob, flags = '') {
   let re = '';
   let i = 0;
   while (i < glob.length) {
@@ -27,10 +28,10 @@ export function globToRegex(glob) {
       re += '[^/]*'; i += 1; continue;
     }
     if (c === '?') { re += '[^/]'; i += 1; continue; }
-    re += c.replace(/[.+^${}()|[\]\/]/g, '\$&');
+    re += c.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
     i += 1;
   }
-  return new RegExp('^' + re + '$');
+  return new RegExp('^' + re + '$', flags + 's');
 }
 
 // Subconjunto de YAML do fila.yml: chaves de topo + listas de strings entre aspas.
@@ -56,30 +57,68 @@ export function parseFilaYaml(texto) {
   return out;
 }
 
+// Caminhos que um arquivo do PR "toca": o atual E o anterior (rename). Aceita string ou objeto da API de arquivos.
+export function caminhosDoArquivo(f) {
+  if (typeof f === 'string') return [f];
+  return [f.filename, f.previous_filename].filter((x) => typeof x === 'string' && x.length > 0);
+}
+
+const norm = (p) => p.replace(/\\/g, '/').replace(/^\.\//, '');
+
+// Cor de um caminho. Vermelho: case-insensitive (mais restritivo; FS de Windows/macOS ignoram caixa) e também
+// com "\" tratado como "/". Verde: case-sensitive (se errar a caixa cai em amarelo, o lado seguro).
+function corDoCaminho(p, reVerm, reVerde) {
+  const n = norm(p);
+  if (SEMPRE_VERMELHO.some((r) => r.test(p) || r.test(n)) || reVerm.some((r) => r.test(p) || r.test(n))) return 'vermelho';
+  if (reVerde.some((r) => r.test(p))) return 'verde';
+  return 'amarelo';
+}
+
 // Cor por arquivo: vermelho se casa com a lista vermelha (vence mesmo se casar com verde);
 // verde se casa com a verde; o resto é amarelo. Cor do PR = a pior. Sem arquivos = vermelho.
+// Rename: vale o pior entre filename e previous_filename. Deleção é classificada pelo caminho removido.
 export function corDosArquivos(arquivos, cfg) {
   if (!Array.isArray(arquivos) || arquivos.length === 0) {
     return { cor: 'vermelho', motivo: 'sem arquivos (dúvida)' };
   }
-  const reVerm = cfg.vermelho.map(globToRegex);
-  const reVerde = cfg.verde.map(globToRegex);
+  const reVerm = cfg.vermelho.map((g) => globToRegex(g, 'i'));
+  const reVerde = cfg.verde.map((g) => globToRegex(g));
   let pior = 'verde';
   let exemplo = null;
   for (const f of arquivos) {
-    let cor;
-    if (SEMPRE_VERMELHO.some((r) => r.test(f)) || reVerm.some((r) => r.test(f))) cor = 'vermelho';
-    else if (reVerde.some((r) => r.test(f))) cor = 'verde';
-    else cor = 'amarelo';
-    if (ORDEM[cor] > ORDEM[pior]) { pior = cor; exemplo = f; }
+    const caminhos = caminhosDoArquivo(f);
+    if (caminhos.length === 0) { pior = 'vermelho'; exemplo = '(arquivo sem nome)'; continue; }
+    for (const p of caminhos) {
+      const cor = corDoCaminho(p, reVerm, reVerde);
+      if (ORDEM[cor] > ORDEM[pior]) { pior = cor; exemplo = p; }
+    }
   }
   return { cor: pior, motivo: exemplo ? `pior arquivo: ${exemplo}` : 'só verde' };
 }
 
-// Checks do commit, ignorando os do próprio robô (nome começa com "fila").
-// Estado: 'falha' | 'pendente' | 'ok' | 'nenhum' (sem checks = vacuamente ok, sinalizado no relatório).
-export function estadoChecks(runs, obrigatorios = []) {
-  const outros = runs.filter((r) => !/^fila\b/i.test(r.name));
+// PR que toca .github/** (inclusive como origem de rename/deleção): o job de merge recusa, mesmo aprovado.
+export function tocaGithub(arquivos) {
+  return (arquivos || []).some((f) => caminhosDoArquivo(f).some((p) => /^\.github(\/|$)/i.test(norm(p))));
+}
+
+// Instante que abre a janela do amarelo: o push do commit atual (API de atividade) ou, sem ele, o updated_at do PR
+// (conservador: nunca anterior ao push). Nunca antes de created_at. Não usa committer.date (o autor controla).
+export function instanteDoEvento({ pushIso, updatedIso, createdIso }) {
+  const t = [pushIso || updatedIso, createdIso].map((x) => Date.parse(x)).filter((n) => Number.isFinite(n));
+  return t.length ? Math.max(...t) : null;
+}
+
+// Nome exato do check do próprio robô (job "fila" do caller chamando job "fila" do reusable). Só este é ignorado.
+export const NOMES_PROPRIOS = ['fila / fila'];
+
+const ehProprio = (r, proprios, runId) => proprios.includes(r.name)
+  || Boolean(runId && typeof r.details_url === 'string' && r.details_url.includes(`/actions/runs/${runId}/`));
+
+// Checks do commit, sem os do próprio robô (nome exato ou run atual).
+// Estado: 'falha' | 'pendente' | 'sem_obrigatorios' (config sem checks_obrigatorios) | 'nenhum' (nada registrado) | 'ok'.
+// Ausência de checks NUNCA é verde: 'nenhum' e 'sem_obrigatorios' não mergeiam sozinhos.
+export function estadoChecks(runs, obrigatorios = [], { proprios = NOMES_PROPRIOS, runId = null } = {}) {
+  const outros = runs.filter((r) => !ehProprio(r, proprios, runId));
   const falhas = [];
   const pendentes = [];
   for (const r of outros) {
@@ -87,14 +126,16 @@ export function estadoChecks(runs, obrigatorios = []) {
     else if (!['success', 'neutral', 'skipped'].includes(r.conclusion)) falhas.push(r.name);
   }
   for (const nome of obrigatorios) {
-    const achados = outros.filter((r) => r.name === nome).sort((a, b) => b.id - a.id);
+    // obrigatório só vale se vier do GitHub Actions (quando o app é informado)
+    const achados = outros.filter((r) => r.name === nome && (!r.app || r.app.slug === 'github-actions')).sort((a, b) => b.id - a.id);
     if (achados.length === 0) pendentes.push(`${nome} (ausente)`);
     else if (achados[0].status !== 'completed') pendentes.push(nome);
     else if (achados[0].conclusion !== 'success') falhas.push(nome);
   }
   if (falhas.length) return { estado: 'falha', nomes: falhas };
   if (pendentes.length) return { estado: 'pendente', nomes: pendentes };
-  if (outros.length === 0 && obrigatorios.length === 0) return { estado: 'nenhum', nomes: [] };
+  if (obrigatorios.length === 0) return { estado: 'sem_obrigatorios', nomes: [] };
+  if (outros.length === 0) return { estado: 'nenhum', nomes: [] };
   return { estado: 'ok', nomes: [] };
 }
 
@@ -120,13 +161,15 @@ export function aprovacaoEMudancas(reviews, shaHead, aprovadores = APROVADORES) 
 }
 
 // Decisão final. acao: 'merge' | 'espera' | 'segura'.
-export function decidir({ draft, mergeable, labels, cor, checks, idadeMs, mudancasPedidas, aprovado, minAmareloMs = MIN_AMARELO_MS }) {
+export function decidir({ draft, mergeable, labels, cor, checks, idadeMs, mudancasPedidas, aprovado, bloqueioGithub = false, minAmareloMs = MIN_AMARELO_MS }) {
   const espera = (motivo, esperando) => ({ acao: 'espera', motivo, esperando });
   if (draft) return espera('rascunho nunca mergeia', 'autor (rascunho)');
   if (labels.includes('fila:segura')) return { acao: 'segura', motivo: 'fila:segura', esperando: 'quem pôs fila:segura' };
+  if (bloqueioGithub) return espera('toca .github/**: merge só manual', 'João (merge manual)');
   if (!Object.prototype.hasOwnProperty.call(ORDEM, cor)) return espera('cor indefinida (dúvida = vermelho)', 'João (classificar)');
   if (checks.estado === 'falha') return espera(`checks falhando: ${checks.nomes.join(', ')}`, 'autor (checks)');
   if (checks.estado === 'pendente') return espera(`checks em andamento: ${checks.nomes.join(', ')}`, 'tempo');
+  if (checks.estado !== 'ok') return espera(`sem checks para confiar (${checks.estado}): não mergeia sozinho`, 'João (sem CI)');
   if (mergeable === false) return espera('conflito com a base', 'autor (conflito)');
   if (mergeable !== true) return espera('mergeabilidade ainda calculando', 'tempo');
   if (mudancasPedidas) return espera('review pedindo mudança', 'autor (mudanças pedidas)');
