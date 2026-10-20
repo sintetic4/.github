@@ -1,0 +1,32 @@
+# Modelo do caller de cada repo (copiar para .github/workflows/fila-caller.yml).
+# Troque <SHA> pelo commit do sintetic4/.github que contém o workflow fila.yml (40 hex; tag/branch NÃO serve).
+# Estes eventos executam o arquivo da branch padrão, nunca o do PR. NÃO usar `pull_request`, `pull_request_review`
+# nem `check_suite` aqui: rodariam o workflow do head (o PR editaria o caller) ou nem disparariam (check_suite
+# criado pelo Actions não dispara workflows).
+# Aprovação de review não dispara o robô: vale no próximo evento (push/label/ci/cron) ou em "Run workflow".
+name: fila
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  workflow_run:
+    workflows: [validate]        # nome do workflow de CI do repo; ao terminar, reavalia os PRs do commit
+    types: [completed]
+  schedule:
+    - cron: '30 10 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: fila-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  fila:
+    uses: sintetic4/.github/.github/workflows/fila.yml@<SHA>
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      checks: read
