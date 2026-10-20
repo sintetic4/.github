@@ -41,6 +41,14 @@ test('cor: pior vence; duvida = vermelho', () => {
   assert.equal(corDosArquivos([], CFG).cor, 'vermelho');
 });
 
+test('cor: template de PR e CONTRIBUTING sao vermelho em qualquer caminho, mesmo casando com verde', () => {
+  for (const f of ['pull_request_template.md', '.github/pull_request_template.md', 'docs/PULL_REQUEST_TEMPLATE.md',
+    '.github/PULL_REQUEST_TEMPLATE/bug.md', 'CONTRIBUTING.md', 'docs/CONTRIBUTING.md', '.github/contributing.md']) {
+    assert.equal(corDosArquivos(['README.md', f], CFG).cor, 'vermelho', f);
+  }
+  assert.equal(corDosArquivos(['docs/contributing-guide-x.md'], CFG).cor, 'verde');
+});
+
 test('checks: robo ignorado; falha, pendente, nenhum, obrigatorio', () => {
   assert.equal(estadoChecks([], []).estado, 'nenhum');
   assert.equal(estadoChecks([{ id: 1, name: 'fila / fila', status: 'in_progress' }], []).estado, 'nenhum');

@@ -7,6 +7,10 @@ export const MIN_AMARELO_MS = 24 * 3600 * 1000;
 export const LIMITE_FILA = 5;
 export const CHAVES_CONFIG = ['vermelho', 'verde', 'checks_obrigatorios'];
 
+// Sempre vermelho, em qualquer caminho e independente do fila.yml do repo (que é por repo e pode omitir):
+// template de PR e CONTRIBUTING mudam o processo de contribuição. GitHub aceita qualquer caixa e a pasta PULL_REQUEST_TEMPLATE/.
+export const SEMPRE_VERMELHO = [/(^|\/)pull_request_template(\.[^/]+)?$/i, /(^|\/)pull_request_template\//i, /(^|\/)contributing(\.[^/]+)?$/i];
+
 const ORDEM = { verde: 0, amarelo: 1, vermelho: 2 };
 
 // Glob mínimo: ** (qualquer caminho; "**/" também casa zero pastas), * (sem barra), ? (um caractere sem barra).
@@ -64,7 +68,7 @@ export function corDosArquivos(arquivos, cfg) {
   let exemplo = null;
   for (const f of arquivos) {
     let cor;
-    if (reVerm.some((r) => r.test(f))) cor = 'vermelho';
+    if (SEMPRE_VERMELHO.some((r) => r.test(f)) || reVerm.some((r) => r.test(f))) cor = 'vermelho';
     else if (reVerde.some((r) => r.test(f))) cor = 'verde';
     else cor = 'amarelo';
     if (ORDEM[cor] > ORDEM[pior]) { pior = cor; exemplo = f; }
